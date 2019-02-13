@@ -78,8 +78,13 @@ from cadcutils import net, util
 # from cadcutils.net import wscapabilities
 # from cadcutils.net import ws
 from six.moves import input
+from six.moves.urllib.parse import urlparse
 import os
 from cadctap import version
+from six import BytesIO, StringIO
+import gnureadline
+import shlex
+import pandas as pd
 
 import magic
 from requests_toolbelt.multipart.encoder import MultipartEncoder
@@ -112,6 +117,9 @@ DEFAULT_URI = 'ivo://cadc.nrc.ca/'
 
 APP_NAME = 'cadc-tap'
 
+history_file = '/tmp/.cadctap_history'
+gnureadline.read_history_file(history_file)
+gnureadline.write_history_file(history_file)
 
 class CadcTapClient(object):
     """Class to access CADC databases.
@@ -324,9 +332,11 @@ class CadcTapClient(object):
                                    stream=True) as result:
             if not output_file:
                 print(result.text)
-            else:
+            elif isinstance(output_file, str):
                 with open(output_file, "wb") as f:
                     f.write(result.raw.read())
+            else:
+                output_file.write(result.raw.read())
 
     def schema(self):
         """
@@ -335,6 +345,34 @@ class CadcTapClient(object):
         results = self._tap_client.get((TABLES_CAPABILITY_ID, None))
         print(results.text)
 
+    def interact(self):
+
+
+        print('Enter a command to do something, e.g. `\create name price`.')
+        print('To get help, enter `\help`.')
+        pd.set_option('display.max_rows', 1000)
+        pd.set_option('display.max_columns', None)
+        service = urlparse(self.resource_id).path
+        while True:
+            cmd = input('{}> '.format(service))
+            if not cmd:
+                continue
+            if cmd.startswith('\\'):
+                cmd = shlex.split(cmd[1:])
+                if cmd[0] == 'exit':
+                    break
+                else:
+                    print("Unkown command {}".format(cmd))
+            else:
+                try:
+                    results = BytesIO()
+                    self.query(cmd, output_file=results, response_format='csv')
+                    t = results.getvalue().decode('utf-8')
+                    #print(t)
+                    data = pd.read_csv(StringIO(t))
+                    print(data.head(None))
+                except Exception as e:
+                    print("Error: {}".format(str(e)))
 
 def _customize_parser(parser):
     # cadc-tap customizes some of the options inherited from the CADC parser
@@ -486,6 +524,12 @@ def main_app(command='cadc-tap query'):
         help='source of the data. It can be files or "-" for stdout.'
     )
 
+    interactive_parser = subparsers.add_parser(
+        'interactive',
+        description='Run cadctap in interactive mode',
+        help='Run cadctap in interactive mode'
+    )
+
     # handle errors
     errors = [0]
 
@@ -509,6 +553,7 @@ def main_app(command='cadc-tap query'):
     _customize_parser(delete_parser)
     _customize_parser(index_parser)
     _customize_parser(load_parser)
+    _customize_parser(interactive_parser)
     args = parser.parse_args()
     if len(sys.argv) < 2:
         parser.print_usage(file=sys.stderr)
@@ -555,7 +600,8 @@ def main_app(command='cadc-tap query'):
         client.query(query, args.output_file, args.format, args.tmptable)
     elif args.cmd == 'schema':
         client.schema()
-    print('DONE')
+    elif args.cmd == 'interactive':
+        client.interact()
 
 
 #############################################################################
