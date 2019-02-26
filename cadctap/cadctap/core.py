@@ -370,7 +370,8 @@ class CadcTapClient(object):
                     t = results.getvalue().decode('utf-8')
                     #print(t)
                     data = pd.read_csv(StringIO(t))
-                    print(data.head(None))
+                    print(data.to_string(index=False))
+                    print('Total: {} rows'.format(len(data)))
                 except Exception as e:
                     print("Error: {}".format(str(e)))
 
