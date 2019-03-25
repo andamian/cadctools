@@ -446,13 +446,14 @@ class CadcTapClient(object):
                     print("Unkown command {}".format(cmd))
             else:
                 try:
-                    results = BytesIO()
-                    self.query(cmd, response_format='tsv')
-                    #t = results.getvalue().decode('utf-8')
+                    results = StringIO()
+                    self.query(cmd, output_file=results,
+                               response_format='VOTable')
+                    t = results.getvalue()
                     #print(t)
-                    #data = pd.read_csv(StringIO(t))
-                    #print(data.to_string(index=False))
-                    #print('Total: {} rows'.format(len(data)))
+                    data = pd.read_csv(t)
+                    print(data.to_string(index=False))
+                    print('Total: {} rows'.format(len(data)))
                 except Exception as e:
                     print("Error: {}".format(str(e)))
 
@@ -465,7 +466,10 @@ def smart_open(filename=None):
         fh = open(filename, 'w')
         close_file = True
     else:
-        fh = sys.stdout
+        if filename:
+            fh = filename
+        else:
+            fh = sys.stdout
 
     try:
         yield fh
