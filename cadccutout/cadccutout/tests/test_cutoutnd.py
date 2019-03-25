@@ -3,7 +3,7 @@
 # ******************  CANADIAN ASTRONOMY DATA CENTRE  *******************
 # *************  CENTRE CANADIEN DE DONNÉES ASTRONOMIQUES  **************
 #
-#  (c) 2018.                            (c) 2018.
+#  (c) 2019.                            (c) 2019.
 #  Government of Canada                 Gouvernement du Canada
 #  National Research Council            Conseil national de recherches
 #  Ottawa, Canada, K1A 0R6              Ottawa, Canada, K1A 0R6
@@ -70,68 +70,52 @@
 from __future__ import (absolute_import, division, print_function,
                         unicode_literals)
 
-
 import pytest
+import numpy as np
+from cadccutout.cutoutnd import CutoutND
 from cadccutout.pixel_cutout_hdu import PixelCutoutHDU
 
 
 def test_create():
-    test_subject = PixelCutoutHDU([(1, 200), (305, 600)], 7)
-    assert test_subject.get_extension() == 7, 'Wrong extension.'
-
-    test_subject = PixelCutoutHDU([(1, 200), (30)], 'SCI,5')
-    assert test_subject.get_extension() == ('SCI', 5), 'Wrong extension.'
-
-    test_subject = PixelCutoutHDU([(99, 101), (44, 66)], 'AMS ,2')
-    assert test_subject.get_extension() == ('AMS', 2), \
-        'Wrong extension (didn' 't filter out spaces)'
-
-    test_subject = PixelCutoutHDU([(12, 30)], 'EXT,0')
-    assert test_subject.get_extension() == ('EXT', 1)
-
-    with pytest.raises(ValueError) as ve:
-        test_subject = PixelCutoutHDU([(23, 67), (23, 89)],
-                                      extension='SCI, 3, i')
-    assert str(ve).index(
-        'Specifying XTENSION return type is not supported.') > 0
-
-    with pytest.raises(ValueError) as ve:
-        test_subject = PixelCutoutHDU([(23, 67, 25), (23, 89)],
-                                      extension='SCI, 3')
-    assert str(ve).index('ValueError: Invalid range ((23, 67, 25)).') > 0
-
-    test_subject = PixelCutoutHDU(extension='5')
-    assert test_subject.get_extension() == 5, 'Wrong extension.'
-
     with pytest.raises(ValueError):
-        test_subject = PixelCutoutHDU([()])
+        CutoutND(data=None)
 
 
-def test_get_shape():
-    test_subject = PixelCutoutHDU([(1, 200), (305, 600)])
-    shape = test_subject.get_shape()
-    assert shape == (200, 296), 'Wrong shape output.'
+def test_get_position_shape():
+    data_shape = (4, 4)
+    data = np.random.random_sample(data_shape)
+    test_subject = CutoutND(data)
+    cutout_region = PixelCutoutHDU([(1, 200), (305, 600)])
+    (position, shape) = test_subject._get_position_shape(data_shape,
+                                                         cutout_region)
 
-    test_subject = PixelCutoutHDU([(10, 20), (30)])
-    shape = test_subject.get_shape()
-    assert shape == (11, 1), 'Wrong shape output.'
-
-
-def test_get_ranges():
-    test_subject = PixelCutoutHDU([(1, 200), (305, 600)])
-    ranges = test_subject.get_ranges()
-    assert ranges == [(1, 200), (305, 600)], 'Wrong ranges output.'
-
-    test_subject = PixelCutoutHDU([(10, 20), (30)])
-    ranges = test_subject.get_ranges()
-    assert ranges == [(10, 20), (30, 30)], 'Wrong ranges output.'
+    assert shape == (296, 200), 'Wrong shape returned'
+    assert position == (451, 99), 'Wrong shape returned'
 
 
-def test_get_position():
-    test_subject = PixelCutoutHDU([(1, 200), (305, 360), (400, 1000)])
-    position = test_subject.get_position()
-    assert position == (99, 331, 699), 'Wrong position output.'
+def test_get_position_shape_err_shape():
+    data_shape = (4, 4)
+    data = np.random.random_sample(data_shape)
+    test_subject = CutoutND(data)
+    cutout_region = PixelCutoutHDU([(1, 200), (305, 600), (100, 155)])
 
-    test_subject = PixelCutoutHDU([(10, 20), (30), (400, 406)])
-    position = test_subject.get_position()
-    assert position == (14, 29, 402), 'Wrong position output.'
+    with pytest.raises(ValueError) as ve:
+        test_subject._get_position_shape(data_shape, cutout_region)
+
+    error_output = str(ve)
+    ind = error_output.index('ValueError: ') + len('ValueError: ')
+    assert error_output[ind:] == \
+        'Invalid shape requested (tried to extract (56, 296, 200) from (4, 4)).'
+
+
+def test_get_position_shape_prepend():
+    data_shape = (4, 4)
+    data = np.random.random_sample(data_shape)
+    test_subject = CutoutND(data)
+    cutout_region = PixelCutoutHDU([(10)])
+
+    (position, shape) = \
+        test_subject._get_position_shape(data_shape, cutout_region)
+
+    assert position == (2, 9), 'Wrong position.'
+    assert shape == (4, 1), 'Wrong shape.'
