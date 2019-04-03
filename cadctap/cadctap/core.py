@@ -87,6 +87,8 @@ import shlex
 import pandas as pd
 from six.moves.urllib.parse import urlparse, urlencode
 import contextlib
+import parse
+from xml.etree import ElementTree
 
 from requests_toolbelt.multipart.encoder import MultipartEncoder
 
@@ -135,15 +137,108 @@ TAP_CAPABILITY = 'ivo://ivoa.net/std/TAP'
 
 APP_NAME = 'cadc-tap'
 
-history_file = '/tmp/.cadctap_history'
-try:
-    gnureadline.read_history_file(history_file)
-except IOError:
-    pass #  No history
-gnureadline.write_history_file(history_file)
 # for default authentication
 CADC_DOMAIN = 'cadc-ccda.hia-iha.nrc-cnrc.gc.ca'
 CANFAR_DOMAIN = 'canfar.net'
+
+
+class Completion(object):
+    """
+    Word completion capabilities
+    """
+    # This is the complete list as it appears in the ADQL documents. Currently
+    # not used
+    SQL_ALL_KEYS = ['ABSOLUTE', 'ACTION', 'ADD', 'ALL', 'ALLOCATE', 'ALTER',
+                    'AND', 'ANY', 'ARE', 'AS', 'ASC', 'ASSERTION', 'AT',
+                    'AUTHORIZATION',
+                    'AVG', 'BEGIN', 'BETWEEN', 'BIT', 'BIT_LENGTH', 'BOTH',
+                    'BY',
+                    'CASCADE', 'CASCADED', 'CASE', 'CAST', 'CATALOG', 'CHAR',
+                    'CHARACTER', 'CHARACTER_LENGTH', 'CHAR_LENGTH', 'CHECK',
+                    'CLOSE', 'COALESCE', 'COLLATE', 'COLLATION', 'COLUMN',
+                    'COMMIT', 'CONNECT', 'CONNECTION', 'CONSTRAINT',
+                    'CONSTRAINTS',
+                    'CONTINUE', 'CONVERT', 'CORRESPONDING', 'COUNT', 'CREATE',
+                    'CROSS', 'CURRENT', 'CURRENT_DATE', 'CURRENT_TIME',
+                    'CURRENT_TIMESTAMP', 'CURRENT_USER', 'CURSOR', 'DATE',
+                    'DAY',
+                    'DEALLOCATE', 'DECIMAL', 'DECLARE', 'DEFAULT',
+                    'DEFERRABLE',
+                    'DEFERRED', 'DELETE', 'DESC', 'DESCRIBE', 'DESCRIPTOR',
+                    'DIAGNOSTICS', 'DISCONNECT', 'DISTINCT', 'DOMAIN',
+                    'DOUBLE',
+                    'DROP', 'ELSE', 'END', 'END-EXEC', 'ESCAPE', 'EXCEPT',
+                    'EXCEPTION', 'EXEC', 'EXECUTE', 'EXISTS', 'EXTERNAL',
+                    'EXTRACT', 'FALSE', 'FETCH', 'FIRST', 'FLOAT', 'FOR',
+                    'FOREIGN', 'FOUND', 'FROM', 'FULL', 'GET', 'GLOBAL', 'GO',
+                    'GOTO', 'GRANT', 'GROUP', 'HAVING', 'HOUR', 'IDENTITY',
+                    'IMMEDIATE', 'IN', 'INDICATOR', 'INITIALLY', 'INNER',
+                    'INPUT',
+                    'INSENSITIVE', 'INSERT', 'INT', 'INTEGER', 'INTERSECT',
+                    'INTERVAL', 'INTO', 'IS', 'ISOLATION', 'JOIN', 'KEY',
+                    'LANGUAGE', 'LAST', 'LEADING', 'LEFT', 'LEVEL', 'LIKE',
+                    'LOCAL', 'LOWER', 'MATCH', 'MAX', 'MIN', 'MINUTE',
+                    'MODULE',
+                    'MONTH', 'NAMES', 'NATIONAL', 'NATURAL', 'NCHAR', 'NEXT',
+                    'NO',
+                    'NOT', 'NULL', 'NULLIF', 'NUMERIC', 'OCTET_LENGTH', 'OF',
+                    'ON',
+                    'ONLY', 'OPEN', 'OPTION', 'OR', 'ORDER', 'OUTER', 'OUTPUT',
+                    'OVERLAPS', 'PAD', 'PARTIAL', 'POSITION', 'PRECISION',
+                    'PREPARE', 'PRESERVE', 'PRIMARY', 'PRIOR', 'PRIVILEGES',
+                    'PROCEDURE', 'PUBLIC', 'READ', 'REAL', 'REFERENCES',
+                    'RELATIVE', 'RESTRICT', 'REVOKE', 'RIGHT', 'ROLLBACK',
+                    'ROWS',
+                    'SCHEMA', 'SCROLL', 'SECOND', 'SECTION', 'SELECT',
+                    'SESSION',
+                    'SESSION_USER', 'SET', 'SIZE', 'SMALLINT', 'SOME', 'SPACE',
+                    'SQL', 'SQLCODE', 'SQLERROR', 'SQLSTATE', 'SUBSTRING',
+                    'SUM',
+                    'SYSTEM_USER', 'TABLE', 'TEMPORARY', 'THEN', 'TIME',
+                    'TIMESTAMP', 'TIMEZONE_HOUR', 'TIMEZONE_MINUTE', 'TO',
+                    'TRAILING', 'TRANSACTION', 'TRANSLATE', 'TRANSLATION',
+                    'TRIM',
+                    'TRUE', 'UNION', 'UNIQUE', 'UNKNOWN', 'UPDATE', 'UPPER',
+                    'USAGE', 'USER', 'USING', 'VALUE', 'VALUES', 'VARCHAR',
+                    'VARYING', 'VIEW', 'WHEN', 'WHENEVER', 'WHERE', 'WITH',
+                    'WORK',
+                    'WRITE', 'YEAR', 'ZONE']
+
+    SQL_KEYWORDS = ['AND', 'AS', 'ASC', 'AVG', 'BEGIN', 'BETWEEN', 'GROUP BY',
+                    'SORT BY', 'CHAR', 'CHAR_LENGTH', 'COALESCE', 'COUNT',
+                    'DESC',
+                    'DISTINCT', 'ELSE', 'END', 'EXISTS', 'FOR', 'FROM',
+                    'HAVING',
+                    'IN', 'INNER', 'INTERSECT', 'INTO', 'IS', 'JOIN', 'LEFT',
+                    'LIKE', 'LOWER', 'MAX', 'MIN', 'MINUTE', 'MONTH', 'NOT',
+                    'NULL', 'OR', 'ORDER', 'OUTER', 'RIGHT', 'SELECT',
+                    'SUBSTRING',
+                    'SUM', 'THEN', 'TRUE', 'WHERE', 'YEAR']
+
+    ADQL_KEYWORDS = ['ABS', 'ACOS', 'ASIN', 'ATAN', 'ATAN2', 'CEILING', 'COS',
+                     'DEGREES', 'EXP', 'FLOOR', 'LOG', 'LOG10', 'MOD', 'PI',
+                     'POWER', 'RADIANS', 'RAND', 'ROUND', 'SIN', 'SQRT', 'TAN',
+                     'TOP', 'TRUNCATE']
+
+    SQL_KEYWORDS_LOWER = [k.lower() for k in SQL_KEYWORDS]
+    ADQL_KEYWORDS_LOWER = [k.lower() for k in ADQL_KEYWORDS]
+
+    def __init__(self):
+        self.values = Completion.SQL_KEYWORDS + Completion.SQL_KEYWORDS_LOWER\
+            + Completion.ADQL_KEYWORDS + Completion.ADQL_KEYWORDS_LOWER
+
+    def add_keywords(self, new_keywords):
+        self.values += new_keywords
+
+    def complete(self, text, state):
+        matches = [v for v in self.values if v.startswith(text)]
+        if len(matches) == 1 and matches[0] == text:
+            # Add space if the current text is the same as the only match
+            return "{} ".format(matches[0]) if state == 0 else None
+        if state >= len(matches):
+            return None
+        return matches[state]
+
 
 
 class CadcTapClient(object):
@@ -350,7 +445,8 @@ class CadcTapClient(object):
                 logger.info('Done uploading file {}'.format(fh.name))
 
     def query(self, query, output_file=None, response_format='VOTable',
-              tmptable=None, lang='ADQL', timeout=2, data_only=False):
+              tmptable=None, lang='ADQL', timeout=2, data_only=False,
+              raw=False):
         """
         Send query to database and output or save results
         :param query: the query to send to the database
@@ -361,6 +457,7 @@ class CadcTapClient(object):
         :param timeout: time in minutes before the query should timeout when no
         response receive from server.
         :param data_only: print only data - no headers or footers
+        :param raw: True if data returned from server is not to be processed
         """
         pass
         if not query:
@@ -394,7 +491,7 @@ class CadcTapClient(object):
                                        'Content-Type': m.content_type},
                                    stream=True, timeout=timeout*60) as result:
             with smart_open(output_file) as f:
-                if response_format == 'VOTable':
+                if raw or response_format == 'VOTable':
                     f.write(result.text)
                     return
                 header = True
@@ -426,36 +523,110 @@ class CadcTapClient(object):
         results = self._tap_client.get((TABLES_CAPABILITY_ID, table),
                                        params={'detail': 'min'})
         # TODO display something more user friendly than the VOSI XML
-        print(results.text)
+        return results.text
 
     def interact(self):
-        print('Enter a command to do something, e.g. `\create name price`.')
-        print('To get help, enter `\help`.')
-        pd.set_option('display.max_rows', 1000)
-        pd.set_option('display.max_columns', None)
-        service = urlparse(self.resource_id).path
-        while True:
-            cmd = input('{}> '.format(service))
-            if not cmd:
-                continue
-            if cmd.startswith('\\'):
-                cmd = shlex.split(cmd[1:])
-                if cmd[0] == 'exit':
-                    break
-                else:
-                    print("Unkown command {}".format(cmd))
+        history_file = '/tmp/.cadctap_history_{}'.format(
+            self.resource_id.replace('/', '_'))
+        try:
+            gnureadline.read_history_file(history_file)
+        except IOError:
+            pass #  No history
+        completer = Completion()
+        # add table schemas to the list of known keywords
+        # TODO add ADQL function from the capabilities
+        gnureadline.set_completer(completer.complete)
+        document = ElementTree.fromstring(self.schema())
+        extra_values = []
+        for t in document.findall('schema/table/name'):
+            t_name = t.text
+            extra_values.append(t_name)
+            doc = ElementTree.fromstring(self.schema(t_name))
+            for c in doc.findall('column/name'):
+                extra_values.append(c.text)
+        completer.add_keywords(extra_values)
+        for line in ("tab: complete", "set show-all-if-unmodified on"):
+            gnureadline.parse_and_bind(line)
+        try:
+            r = self._tap_client.get(
+                'https://ws-cadc.canfar.net/ac/auth/whoami')
+            if r.status_code == 200:
+                user = parse.search('<identity type="HTTP">{}</identity>',
+                                    r.text)[0]
             else:
-                try:
-                    results = StringIO()
-                    self.query(cmd, output_file=results,
-                               response_format='VOTable')
-                    t = results.getvalue()
-                    #print(t)
-                    data = pd.read_csv(t)
-                    print(data.to_string(index=False))
-                    print('Total: {} rows'.format(len(data)))
-                except Exception as e:
-                    print("Error: {}".format(str(e)))
+                user = 'anon'
+
+            print('Enter a command to do something, e.g. `\create name price`.')
+            print('To get help, enter `\help`.')
+            pd.set_option('display.max_rows', 1000)
+            pd.set_option('display.max_columns', None)
+            service = urlparse(self.resource_id).path
+            cmd = ''
+            sh_cmd = None
+            while True:
+                uin = shlex.split(
+                    input('{}@{}> '.format(user, service.strip('/'))),
+                    posix=False)
+                if not uin:
+                    continue
+                if uin[0] == 'exit':
+                    break
+                for i in uin:
+                    if i.endswith(';'):
+                        sh_cmd = ''
+                        if len(i) > 1:
+                            cmd += ' ' + i[:-1]
+                        continue
+                    if sh_cmd is not None:
+                        sh_cmd += ' ' + i
+                    else:
+                        cmd += ' ' + i
+                if sh_cmd is not None:
+                    selects = []
+                    s = ''
+                    for t in cmd.strip().split(' '):
+                        if s == '' or t.lower() != 'select':
+                            s += ' ' + t
+                        else:
+                            selects.append(s)
+                            s = t
+                    selects.append(s.strip())
+                    for s in selects:
+                        results = StringIO()
+                        logger.debug('executing {}'.format(s))
+                        try:
+                            self.query(s, output_file=results,
+                                       response_format='csv', raw=True)
+                            # this might not be efficient. read_csv can take a
+                            # url - maybe point it to the job results?
+                            t = StringIO(results.getvalue())
+                            data = pd.read_csv(t)
+                            if sh_cmd:
+                                sh_fields = sh_cmd.strip().split()
+                                if sh_fields[0].startswith('>'):
+                                    if len(sh_fields) == 1:
+                                        raise Exception(
+                                            'Destination file required')
+                                    elif sh_fields[1].startswith('vos:'):
+                                        # copy the results to vos
+                                        raise NotImplementedError()
+                                    elif sh_fields[0] == '>':
+                                        # override file
+                                        open(sh_fields[1], 'w').write(
+                                            data.to_string())
+                                    else:
+                                        # append to file
+                                        open(sh_fields[1], 'w+').write(
+                                            data.to_string())
+                            else:
+                                print(data.to_string(index=False))
+                                print('\nTotal: {} rows\n'.format(len(data)))
+                        except Exception as e:
+                            print("\nError: query{} - {}\n".format(s, str(e)))
+                    cmd = ''
+                    sh_cmd = None
+        finally:
+            gnureadline.write_history_file(history_file)
 
 @contextlib.contextmanager
 def smart_open(filename=None):
@@ -870,7 +1041,7 @@ def main_app(command='cadc-tap query'):
             client.query(query, args.output_file, args.format, args.tmptable,
                          timeout=args.timeout, data_only=args.quiet)
         elif args.cmd == 'schema':
-            client.schema(args.tablename)
+            print(client.schema(args.tablename))
         elif args.cmd == 'interactive':
             client.interact()
     except Exception as ex:
