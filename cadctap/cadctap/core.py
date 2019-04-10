@@ -492,7 +492,7 @@ class CadcTapClient(object):
                                    stream=True, timeout=timeout*60) as result:
             with smart_open(output_file) as f:
                 if raw or response_format == 'VOTable':
-                    f.write(result.text)
+                    f.write(result.raw.read())
                     return
                 header = True
                 for row in result.text.split('\n'):
@@ -634,7 +634,7 @@ def smart_open(filename=None):
     # it returns stdout to write to.
     close_file = False
     if filename and filename != '-' and isinstance(filename, six.string_types):
-        fh = open(filename, 'w')
+        fh = open(filename, 'wb')
         close_file = True
     else:
         if filename:
