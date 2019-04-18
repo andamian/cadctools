@@ -86,6 +86,7 @@ import gnureadline
 import shlex
 import pandas as pd
 from six.moves.urllib.parse import urlparse, urlencode
+import six
 import contextlib
 import parse
 from xml.etree import ElementTree
@@ -490,8 +491,8 @@ class CadcTapClient(object):
                                    data=m, headers={
                                        'Content-Type': m.content_type},
                                    stream=True, timeout=timeout*60) as result:
-            with smart_open(output_file) as f:
-                if raw or response_format == 'VOTable':
+            with smart_open(output_file, response_format) as f:
+                if response_format == 'VOTable':
                     f.write(result.raw.read())
                     return
                 header = True
@@ -629,18 +630,24 @@ class CadcTapClient(object):
             gnureadline.write_history_file(history_file)
 
 @contextlib.contextmanager
-def smart_open(filename=None):
+def smart_open(filename=None, content_format=None):
     # handles writing to files and stdout uniformly. If filename is None,
     # it returns stdout to write to.
     close_file = False
     if filename and filename != '-' and isinstance(filename, six.string_types):
-        fh = open(filename, 'wb')
+        if content_format == 'VOTable':
+            fh = open(filename, 'wb')
+        else:
+            fh = open(filename, 'w')
         close_file = True
     else:
         if filename:
             fh = filename
         else:
-            fh = sys.stdout
+            if content_format == 'VOTable' and hasattr(sys.stdout, 'buffer'):
+                fh = sys.stdout.buffer
+            else:
+                fh = sys.stdout
 
     try:
         yield fh
@@ -1046,202 +1053,3 @@ def main_app(command='cadc-tap query'):
             client.interact()
     except Exception as ex:
         exit_on_exception(ex)
-
-
-#############################################################################
-
-# Following is code design to work with the astroquery.cadc package.
-# Whether we are going to use it or not is still debatable, hence
-# it is kept here.
-
-# import warnings
-# warnings.filterwarnings("ignore", module='astropy.io.votable.*')
-# BASICAA_ID = 'ivo://ivoa.net/sso#BasicAA'
-# CERTIFICATE_ID = 'ivo://ivoa.net/sso#tls-with-certificate'
-# class CadcTapClient(object):
-    # """Class to access CADC TAP services.
-
-    # Example of usage:
-    # from cadcutils import net
-    # from cadctap import CadcTapClient
-
-    # from astroquery.cadc import Cadc
-    # from astroquery.cadc import auth
-
-    # # create possible types of subjects for CadcTapClient
-    # anonSubject = net.Subject()
-    # netrcSubject = net.Subject(netrc=True)
-    # certSubject = net.Subject(
-    #     certificate='/home/dunnj/Downloads/cadcproxy.pem')
-
-    # # create possible types of authentication for astroquery
-    # anon=auth.AnonAuthMethod()
-    # netrc=auth.NetrcAuthMethod()
-    # cert=auth.CertAuthMethod(
-    #     certificate='/home/dunnj/Downloads/cadcproxy.pem')
-
-    # client = CadcTapClient(anonSubject) # connect to ivo://cadc.nrc.ca/data
-    # # get list of tables
-    # client.get_tables(authentication=anon)
-
-    # client = CadcTapClient(certSubject)
-    # # get list of columns of a table
-    # client.get_table('caom2.caom2.Observation', authentication=cert)
-
-    # client = CadcTapClient(netrcSubject)
-    # # get the results of a query
-    # client.run_query(
-    #     query='SELECT TOP 10 type FROM caom2.Observation',
-    #     authentication=netrc)
-    # """
-
-    # def __init__(self, subject, resource_id=DEFAULT_SERVICE_ID,
-    #             host=None):
-    #     """
-    #     Instance of a CadcDataClient
-    #     :param subject: the subject(user) performing the action
-    #     :type subject: cadcutils.net.Subject
-    #     :param resource_id: The identifier of the service resource
-    #                         (e.g 'ivo://cadc.nrc.ca/data')
-    #     :param host: Host server for the caom2repo service
-    #     """
-    #     self.logger = logging.getLogger(APP_NAME+'.CadcTapClient')
-
-    #     self.resource_id = resource_id
-
-    #     self.host = host
-
-    #     agent = "{}/{}".format(APP_NAME, version.version)
-
-    #     self._data_client = net.BaseWsClient(resource_id, subject,
-    #                                        agent, retry=True, host=self.host)
-    #     reader = wscapabilities.CapabilitiesReader()
-    #     web = ws.WsCapabilities(self._data_client, host)
-    #     if 'http' in resource_id:
-    #         service = resource_id.strip('/')
-    #         if not service.endswith('capabilities'):
-    #             service = service + '/capabilities'
-    #     elif 'ivo://' in resource_id:
-    #         service = web._get_capability_url()
-    #     else:
-    #         source = resource_id.strip('/')
-    #         uri = DEFAULT_URI + source
-    #         web.ws.resource_id = uri
-    #         service = web._get_capability_url()
-    #     content = web._get_content(web.caps_file,
-    #                                service,
-    #                                web.last_capstime)
-    #     self._capabilities = reader.parsexml(content.encode('utf-8'))
-
-    # def run_query(self, query=None, input_file=None, isasync=False,
-    #               format='votable', verbose=False, output_file=False,
-    #               tmptable=None, authentication=None, url=None):
-    #     if input_file is not None:
-    #         with open(input_file) as f:
-    #             adql_query = f.read().strip()
-    #     else:
-    #         adql_query = query
-    #     Cadc = cadc.CadcTAP(url=url, verbose=verbose)
-    #     if isasync is True:
-    #         operation = 'async'
-    #     else:
-    #         operation = 'sync'
-    #     if tmptable is not None:
-    #         tmp = tmptable.split(':')
-    #         tablename = tmp[0]
-    #         tblpath = tmp[1]
-    #     else:
-    #         tablename = None
-    #         tblpath = None
-    #     if output_file is True:
-    #        filename = None
-    #         output = True
-    #     elif output_file is False:
-    #         filename = None
-    #         output = False
-    #     else:
-    #         filename = output_file
-    #         output = True
-    #     try:
-    #         job = Cadc.run_query(adql_query, operation, filename, format,
-    #                              verbose, output, False,
-    #                              tblpath, tablename,
-    #                               authentication)
-    #     except Exception as e:
-    #          if len(e.args) == 1:
-    #             raise exceptions.HttpException(e.args[0])
-    #         elif e.args[1] == 'No such file or directory':
-    #             raise RuntimeError(
-    #               "[Errno "+str(e.args[0])+"] "+e.args[1]+": '"+tblpath+"'")
-    #
-    #     if output is False:
-    #         print('----------------')
-    #         print('Query Results ')
-    #         print('----------------')
-    #         print(job.get_results(verbose=verbose,
-    #                               authentication=authentication))
-
-    # This goes into the main_app function
-
-    # if args.user is not None:
-    #     authentication = auth.NetrcAuthMethod(username=args.user)
-    #     security_id = [BASICAA_ID]
-    # elif args.n is not False:
-    #     authentication = auth.NetrcAuthMethod()
-    #     security_id = [BASICAA_ID]
-    # elif args.netrc_file is not None:
-    #     authentication = auth.NetrcAuthMethod(filename=args.netrc_file)
-    #     security_id = [BASICAA_ID]
-    # elif args.cert is not None:
-    #     authentication = auth.CertAuthMethod(certificate=args.cert)
-    #     security_id = [CERTIFICATE_ID]
-    # else:
-    #     authentication = auth.AnonAuthMethod()
-    #     security_id = []
-    #
-    #
-    # client = CadcTapClient(subject, args.service, host=args.host)
-    # check_cap = client._capabilities._caps.get(feature)
-    # if not security_id:
-    #     method = None
-    # else:
-    #     method = security_id[0]
-    # if check_cap.get_interface(method) is None:
-    #     logger.info("Downgrading authentication type to anonymous,\n"
-    #                 "type {0} not accepted by resource {1}"
-    #                 .format(method, args.service))
-    #     subject = net.Subject()
-    #     authentication = auth.AnonAuthMethod()
-    #     security_id = []
-    # url = client._capabilities.get_access_url(feature, security_id)
-    # if url.endswith('sync') or url.endswith('tables'):
-    #     index = url.rfind('/')
-    #     length = len(url)
-    #     sub_url = url[:-(length-index)]
-    # else:
-    #     sub_url = url
-    # try:
-    #     if args.cmd == 'query':
-    #         logger.info('query')
-    #         client.run_query(args.query, args.input_file, args.async_job,
-    #                          args.format, show_prints,
-    #                          args.output_file, args.tmptable,
-    #                          authentication, sub_url)
-    # except exceptions.UnauthorizedException:
-    #     if subject.anon:
-    #         handle_error('Operation cannot be performed anonymously. '
-    #                      'Use one of the available methods to authenticate')
-    #     else:
-    #         handle_error('Unexpected authentication problem')
-    # except exceptions.ForbiddenException:
-    #     handle_error('Unauthorized to perform operation')
-    # except exceptions.UnexpectedException as e:
-    #     handle_error('Unexpected server error: {}'.format(str(e)))
-    # except Exception as e:
-    #     handle_error(str(e))
-    #
-    # if errors[0] > 0:
-    #     logger.error('Finished with {} error(s)'.format(errors[0]))
-    #     sys.exit(-1)
-    # else:
-    #     logger.info("DONE")
