@@ -558,7 +558,7 @@ class CadcTapClient(object):
                 user = 'anon'
 
             print('Enter a command to do something, e.g. `\create name price`.')
-            print('To get help, enter `\help`.')
+            print('To get help, enter `help`.')
             pd.set_option('display.max_rows', 1000)
             pd.set_option('display.max_columns', None)
             service = urlparse(self.resource_id).path
@@ -570,8 +570,22 @@ class CadcTapClient(object):
                     posix=False)
                 if not uin:
                     continue
+                if uin[0] == 'help':
+                    print(
+                        '\nCommands:\nselect ...; - perform a query. '
+                        'Note the ";" at the end\n'
+                        'exit - Exit interactive mode\n'
+                        'schema <tablename> - Print schema\n')
+                    continue
                 if uin[0] == 'exit':
                     break
+                if uin[0] == 'schema':
+                    if len(uin) > 1:
+                        for u in uin[1:]:
+                            print(self.schema(table=u))
+                    else:
+                        print(self.schema())
+                    continue
                 for i in uin:
                     if i.endswith(';'):
                         sh_cmd = ''
