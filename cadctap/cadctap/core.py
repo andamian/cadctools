@@ -549,12 +549,15 @@ class CadcTapClient(object):
         for line in ("tab: complete", "set show-all-if-unmodified on"):
             gnureadline.parse_and_bind(line)
         try:
-            r = self._tap_client.get(
-                'https://ws-cadc.canfar.net/ac/auth/whoami')
-            if r.status_code == 200:
-                user = parse.search('<identity type="HTTP">{}</identity>',
-                                    r.text)[0]
-            else:
+            try:
+                r = self._tap_client.get(
+                    'https://ws-cadc.canfar.net/ac/auth/whoami')
+                if r.status_code == 200:
+                    user = parse.search('<identity type="HTTP">{}</identity>',
+                                        r.text)[0]
+                else:
+                    user = 'anon'
+            except Exception:
                 user = 'anon'
 
             print('Enter a command to do something, e.g. `\create name price`.')
