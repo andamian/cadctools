@@ -498,7 +498,7 @@ class CadcTapClient(object):
                 header = True
                 for row in result.text.split('\n'):
                     if row.strip():
-                        if header:
+                        if header and not raw:
                             header = False
                             if data_only:
                                 continue
@@ -507,7 +507,7 @@ class CadcTapClient(object):
                         else:
                             rows += 1
                             print(row.strip(), file=f)
-                if not data_only:
+                if not data_only and not raw:
                     if rows == 1:
                         footer = '\n(1 row affected)'
                     else:
@@ -527,6 +527,7 @@ class CadcTapClient(object):
         return results.text
 
     def interact(self):
+        print("Starting up ...")
         history_file = '/tmp/.cadctap_history_{}'.format(
             self.resource_id.replace('/', '_'))
         try:
@@ -559,8 +560,7 @@ class CadcTapClient(object):
                     user = 'anon'
             except Exception:
                 user = 'anon'
-
-            print('Enter a command to do something, e.g. `\create name price`.')
+            print('Query the {} service'.format(self.resource_id))
             print('To get help, enter `help`.')
             pd.set_option('display.max_rows', 1000)
             pd.set_option('display.max_columns', None)
@@ -583,11 +583,14 @@ class CadcTapClient(object):
                 if uin[0] == 'exit':
                     break
                 if uin[0] == 'schema':
-                    if len(uin) > 1:
-                        for u in uin[1:]:
-                            print(self.schema(table=u))
-                    else:
-                        print(self.schema())
+                    try:
+                        if len(uin) > 1:
+                            for u in uin[1:]:
+                                print(self.schema(table=u))
+                        else:
+                            print(self.schema())
+                    except Exception as e:
+                        print("Error: {}".format(str(e)))
                     continue
                 for i in uin:
                     if i.endswith(';'):
@@ -638,7 +641,8 @@ class CadcTapClient(object):
                                             data.to_string())
                             else:
                                 print(data.to_string(index=False))
-                                print('\nTotal: {} rows\n'.format(len(data)))
+                                print('\n({} row{} affected)\n'.format(len(data),
+                                                                      's' if len(data)!=1 else ''))
                         except Exception as e:
                             print("\nError: query{} - {}\n".format(s, str(e)))
                     cmd = ''
