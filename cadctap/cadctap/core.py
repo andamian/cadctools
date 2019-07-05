@@ -564,6 +564,7 @@ class CadcTapClient(object):
             print('To get help, enter `help`.')
             pd.set_option('display.max_rows', 1000)
             pd.set_option('display.max_columns', None)
+            pd.set_option('display.max_colwidth', 100)
             service = urlparse(self.resource_id).path
             cmd = ''
             sh_cmd = None
