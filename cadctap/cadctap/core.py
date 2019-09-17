@@ -90,6 +90,10 @@ import six
 import contextlib
 import parse
 from xml.etree import ElementTree
+import cadcutils
+from xml.dom import minidom
+import re
+from argparse import ArgumentError
 
 from requests_toolbelt.multipart.encoder import MultipartEncoder
 
@@ -104,6 +108,7 @@ TABLES_CAPABILITY_ID = 'ivo://ivoa.net/std/VOSI#tables-1.1'
 TABLE_UPDATE_CAPABILITY_ID = 'ivo://ivoa.net/std/VOSI#table-update-async-1.x'
 TABLE_LOAD_CAPABILITY_ID = 'ivo://ivoa.net/std/VOSI#table-load-sync-1.x'
 QUERY_CAPABILITY_ID = 'ivo://ivoa.net/std/TAP'
+PERMISSIONS_CAPABILITY_ID = 'ivo://ivoa.net/std/VOSI#table-permissions-1.x'
 CADC_AC_SERVICE = 'ivo://cadc.nrc.ca/gms'
 CADC_LOGIN_CAPABILITY = 'ivo://ivoa.net/std/UMS#login-0.1'
 CADC_SSO_COOKIE_NAME = 'CADC_SSO'
@@ -279,6 +284,8 @@ class CadcTapClient(object):
         """
         self.resource_id = resource_id
         self.host = host
+        # cache schema info for multiple calls
+        self._db_schemas = {}
 
         self._subject = subject
         if agent is None:
@@ -317,6 +324,14 @@ class CadcTapClient(object):
 
         self._tap_client = net.BaseWsClient(resource_id, subject, self.agent,
                                             retry=True, host=self.host)
+        # check for the presence of optional TAP features
+        self.permissions_support = True
+        try:
+            self._tap_client.caps.get_access_url(PERMISSIONS_CAPABILITY_ID)
+        except KeyError as ex:
+            if PERMISSIONS_CAPABILITY_ID in str(ex):
+                self.permissions_support = False
+                logger.debug('Service has no support for permissions')
 
     def create_table(self, table_name, table_definition, type='VOSITable'):
         """
@@ -453,7 +468,8 @@ class CadcTapClient(object):
         :param query: the query to send to the database
         :param response_format: (VOTable, csv, tsv) format of returned result
         :param tmptable: tablename:/path/to/table, tmp table to upload
-        :param output_file: name of the file to save results to
+        :param output_file: name of the file or a buffer (BytesIO) to save
+        results to.
         :param lang: the language to use for the query (should be ADQL)
         :param timeout: time in minutes before the query should timeout when no
         response receive from server.
@@ -497,6 +513,8 @@ class CadcTapClient(object):
                     return
                 header = True
                 for row in result.text.split('\n'):
+                    # TODO implement get_query_result and parse result.text
+                    # into TabularInfo object and use display_tab to display it
                     if row.strip():
                         if header and not raw:
                             header = False
@@ -514,17 +532,29 @@ class CadcTapClient(object):
                         footer = '\n({} rows affected)'.format(rows)
                     print(footer, file=f)
 
-    def schema(self, table=None):
+    def schema(self, name=None):
         """
-        Outputs the tables available for queries
+        Outputs information about the tables available for queries
 
-        :param table: name of the table (schema.tablename) of the table to
-        get the schema for. Set to None to get the names of all the tables.
+        :param name: name of the schema or table (schema.tablename) to
+        get the schema for. Set to None to get the names of all the schemas
+        and tables.
         """
-        results = self._tap_client.get((TABLES_CAPABILITY_ID, table),
-                                       params={'detail': 'min'})
         # TODO display something more user friendly than the VOSI XML
-        return results.text
+        try:
+            if '.' in name:
+                tab_info = self.get_table_schema(name)
+            else:
+                tab_info = self.get_schema(name)
+        except cadcutils.exceptions.NotFoundException:
+            raise AttributeError('Resource {} not found.'.format(name))
+        except cadcutils.exceptions.ForbiddenException:
+            raise AttributeError('Resource {} access denied'.format(name))
+        if not tab_info:
+            raise AttributeError('{} not found'.format(name))
+        for tab in tab_info:
+            print('')
+            self.display_tab(tab)
 
     def interact(self):
         print("Starting up ...")
@@ -650,6 +680,259 @@ class CadcTapClient(object):
                     sh_cmd = None
         finally:
             gnureadline.write_history_file(history_file)
+
+
+    def display_tab(self, info):
+        """
+        Displays tabular information
+        :param info: Information to display. Expected TabularInfo type
+        """
+        # determine the maximum length of the table names:
+        if isinstance(info, str):
+            print(info)
+            return
+        print('\n{}: {}\n'.format(info.name, info.description))
+        for i, f in enumerate(info.columns):
+            sys.stdout.write('{field: <{fsize}}  '.
+                             format(field=f,
+                                    fsize=info.max_col_lengths[i]))
+        print('')
+        for col in info.max_col_lengths:
+            sys.stdout.write('-' * col + '  ')
+        print('')
+        for r in info.rows:
+            for i, f in enumerate(r):
+                sys.stdout.write(
+                    '{field: <{fsize}}  '.
+                    format(field=f, fsize=info.max_col_lengths[i]))
+            sys.stdout.write('\n')
+        if len(info.rows) == 1:
+            print('\n(1 row affected)')
+        else:
+            print('\n({} rows affected)'.format(len(info.rows)))
+
+    def get_permissions(self, resource):
+        """
+        Returns the permissions associated with a resource
+        :param resource:
+        :return:
+        """
+        if not self.permissions_support:
+            return ''
+        try:
+            response = self._tap_client.get(
+                (PERMISSIONS_CAPABILITY_ID, resource))
+        except cadcutils.exceptions.ForbiddenException:
+            return 'Permissions - Available to owners only'
+        perm = TabularInfo('Permissions',
+                           'Permissions for ' + resource,
+                           ['Owner', 'Others Read',
+                            'Group Read', 'Group Write'])
+        permissions = {}
+        for row in (response.text.split('\n')):
+            p = row.split('=')
+            if len(p) == 2:
+                permissions[p[0]] = p[1]
+            elif len(p) > 2:
+                permissions[p[0]] = row[row.index('=')+1:]
+            else:
+                permissions[p[0]] = '?'
+        # simplify display of local groups by using just their name
+        pro = permissions['r-group'] if permissions['r-group'] else '-'
+        if pro.startswith(CADC_AC_SERVICE):
+            pro = pro[pro.find('?') + 1:]  # use the short group name
+        prw = permissions['rw-group'] if permissions['rw-group'] else '-'
+        if prw.startswith(CADC_AC_SERVICE):
+            prw = prw[prw.find('?') + 1:]  # use the short group name
+        perm.add_row(
+            (permissions['owner'], permissions['public'], pro, prw))
+        return perm
+
+    def get_schema(self, schema_name=None):
+        """
+        Return DB schema in tabular format.
+        :param schema_name: name of the schema or all the schemas if name is
+        None
+        :return: List of TabularInfo objects describing schema of one database
+        or all databases if schema_name not found.
+        Columns are ['Table', 'Description']
+        """
+        if not self._db_schemas:
+            results = self._tap_client.get((TABLES_CAPABILITY_ID, None),
+                                           params={'detail': 'min'})
+            doc = minidom.parseString(results.text)
+            for s in doc.getElementsByTagName('schema'):
+                schema_info = TabularInfo(
+                    name=s.getElementsByTagName('name')[0].
+                    firstChild.nodeValue,
+                    description='DB schema',
+                    columns=['Table', 'Description'])
+                for t in s.getElementsByTagName('table'):
+                    name = \
+                        t.getElementsByTagName('name')[0].firstChild.nodeValue
+                    description = t.getElementsByTagName('description')[0]. \
+                        firstChild.nodeValue
+                    schema_info.add_row((name, description))
+                self._db_schemas[schema_info.name] = schema_info
+
+        if not schema_name:
+            return list(self._db_schemas.values())
+        else:
+            if schema_name not in self._db_schemas.keys():
+                return None
+
+        result = [self._db_schemas[schema_name]]
+        result.append(self.get_permissions(schema_name))
+        return result
+
+    def get_table_schema(self, table):
+        """
+        Returns the schema information regarding a table in TabularInfo form
+        NOTE: columns ctypes are currently ignored
+        :param table: table name
+        :return: Information about the table as a list of TabularInfo objects.
+        First object represents information about columns, while the second
+        entry describes table foreign keys if any.
+        """
+        response = self._tap_client.get((TABLES_CAPABILITY_ID, table),
+                                        params={'detail': 'min'})
+        doc = minidom.parseString(response.text)
+
+        cols_info = TabularInfo(name=table,
+                                description=doc.getElementsByTagName(
+                                     'description')[0].firstChild.nodeValue,
+                                columns=['Name', 'Type', 'Index',
+                                         'Description'])
+        for s in doc.getElementsByTagName('column'):
+            name = s.getElementsByTagName('name')[0].firstChild.nodeValue
+            description = s.getElementsByTagName('description')[0]. \
+                firstChild.nodeValue
+            if s.getElementsByTagName('utype'):
+                col_type = s.getElementsByTagName('utype')[0]. \
+                    firstChild.nodeValue
+            else:
+                col_type = ''
+            flag = s.getElementsByTagName('flag')
+            if flag and flag[0].firstChild.nodeValue == 'indexed':
+                indexed = 'Y'
+            else:
+                indexed = 'N'
+            cols_info.add_row((name, col_type, indexed, description))
+        result = [cols_info]
+
+        fk = doc.getElementsByTagName('foreignKey')
+        if fk:
+            fk_info = TabularInfo('Foreign Keys', 'Foreign Keys for table',
+                                  ['Target Table', 'Target Col',
+                                   'From Column', 'Description'])
+            for row in fk:
+                target_table = row.getElementsByTagName('targetTable')[0].\
+                    firstChild.nodeValue
+                target_column = row.getElementsByTagName('targetColumn')[0]. \
+                    firstChild.nodeValue
+                from_column = row.getElementsByTagName('fromColumn')[0]. \
+                    firstChild.nodeValue
+                if row.getElementsByTagName('description'):
+                    description = row.getElementsByTagName('description')[0]. \
+                        firstChild.nodeValue
+                else:
+                    description = ''
+                fk_info.add_row((target_table, target_column,
+                                 from_column, description))
+            result.append(fk_info)
+        result.append(self.get_permissions(table))
+        return result
+
+    def set_permissions(self, resource, read_anon=None, read_only=None,
+                        read_write=None):
+        """
+        Set permissions on a resource (schema or table). Only the permissions
+        that are specified (not None) are being updated on the server.
+
+        :param read_anon: True if anonymous reads are allowed, False otherwise
+        :param read_only: Group URI or empty string (clear existing group)
+        :param read_write: Group URI or empty string (clear existing group)
+        :return:
+        """
+        if not self.permissions_support:
+            raise AttributeError(
+                'Service does not support permission-based access')
+        logger.debug('set_permissions on resource {}: read_anon={}, '
+                     'read_only={}, read_write={}'.format(
+                        resource, read_anon, read_only, read_write))
+        if not resource:
+            raise AttributeError("No resource")
+        if read_anon is None and read_only is None and read_write is None:
+            logger.warning('No permissions values passed in set_permissions')
+            return
+        if read_only and not read_only.startswith('ivo://'):
+            raise AttributeError('Expected URI for read group: {}'.
+                                 format(read_only))
+        if read_write and not read_write.startswith('ivo://'):
+            raise AttributeError('Expected URI for write group: {}'.
+                                 format(read_write))
+        params = ''
+        if read_anon is not None:
+            params += 'public={}\n'.format(str(read_anon).lower())
+        if read_only is not None:
+            ro = read_only
+            params += 'r-group={}\n'.format(ro)
+        if read_write is not None:
+            rw = read_write
+            params += 'rw-group={}\n'.format(rw)
+        self._tap_client.post((PERMISSIONS_CAPABILITY_ID, resource),
+                              data=params,
+                              headers={
+                                  'Content-Type': 'text/plain'})
+
+
+class TabularInfo:
+    """
+    Class to store a very simple tabular information to be displayed in tabular
+    format. The table has a name, a description and an arbitrary number of
+    columns (all the text format).
+    """
+    def __init__(self, name, description, columns):
+        """
+        :param name: name of the schema
+        :param description: description of the schema
+        :param columns: name of the columns. Must match the number of
+        tuple fields in rows
+        """
+        self.name = name
+        self.description = description
+        self.columns = columns
+        self._rows = []
+        self._max_col_lengths = []
+        for c in self.columns:
+            self._max_col_lengths.append(len(c))
+
+    @property
+    def rows(self):
+        """
+        :return: Info regarding elements in the schena. Each row is a tuple
+        """
+        return self._rows
+
+    @property
+    def max_col_lengths(self):
+        return self._max_col_lengths
+
+    def add_row(self, values):
+        """
+        Adds info regarding and entry in the schema info
+        :param values: tuple with the values. Must have the same length as the
+        columns in this class
+        """
+        if len(values) != len(self.columns):
+            raise AttributeError(
+                'Number of tuple elements does not match the number of '
+                'the columns: {} != {}'.format(values, self.columns))
+        for i in range(len(values)):
+            if self._max_col_lengths[i] < len(values[i]):
+                self._max_col_lengths[i] = len(values[i])
+        self.rows.append(values)
+
 
 @contextlib.contextmanager
 def smart_open(filename=None, content_format=None):
@@ -833,11 +1116,21 @@ def exit_on_exception(ex):
     message = None
     if isinstance(ex, exceptions.HttpException):
         message = str(ex.orig_exception)
-        if 'Bad Request' in message:
-            message = str(ex)
-        if 'certificate expired' in message:
+        if 'certificate expired' in str(ex.orig_exception):
             message = "Certificate expired."
-
+        else:
+            message = str(ex)
+    if message:
+        # could be VOTable format
+        try:
+            doc = minidom.parseString(message)
+            # in the absence of a VOTable parser, try a simple w
+            for el in doc.getElementsByTagName('INFO'):
+                if el.attributes['name'].value == 'QUERY_STATUS' and \
+                        el.attributes['value'].value == 'ERROR':
+                    message = el.firstChild.nodeValue + '\n'
+        except Exception:
+            pass
     if message:
         sys.stderr.write('ERROR:: {}\n'.format(message))
     else:
@@ -846,6 +1139,57 @@ def exit_on_exception(ex):
     logging.debug(tb)
     sys.exit(getattr(ex, 'errno', -1)) if getattr(ex, 'errno',
                                                   -1) else sys.exit(-1)
+
+
+def _get_permission_modes(opt):
+    """
+    Extracts permissions modes from the mode argument. Duplicated from vchmod
+    :param opt: argparse arguments
+    :return: dictionary of permission modes
+    """
+    group_names = opt.groups
+
+    mode = opt.mode
+
+    props = {'read_anon': None, 'read_only': None, 'read_write': None}
+    if 'o' in mode['who']:
+        if mode['op'] == '-':
+            props['read_anon'] = False
+        else:
+            props['read_anon'] = True
+    if 'g' in mode['who']:
+        if '-' == mode['op']:
+            if not len(group_names) == 0:
+                raise ArgumentError(
+                    None,
+                    "Names of groups not valid with remove permission")
+            if 'r' in mode['what']:
+                props['read_only'] = ''
+            if "w" in mode['what']:
+                props['read_write'] = ''
+        else:
+            if not len(group_names) == len(mode['what']):
+                name = len(mode['what']) > 1 and "names" or "name"
+                raise ArgumentError(None,
+                                    "{} group {} required for {}".format(
+                                        len(mode['what']), name,
+                                        mode['what']))
+            if mode['what'].find('r') > -1:
+                # remove duplicate whitespaces
+                rgroups = " ".join(
+                    group_names[mode['what'].find('r')].split())
+                props['read_only'] = \
+                    '{}?{}'.format(CADC_AC_SERVICE,
+                                   rgroups.replace(" ", " " + CADC_AC_SERVICE))
+            if mode['what'].find('w') > -1:
+                wgroups = " ".join(
+                    group_names[mode['what'].find('w')].split())
+                props['read_write'] = \
+                    '{}?{}'.format(CADC_AC_SERVICE,
+                                   wgroups.replace(" ", " " + CADC_AC_SERVICE))
+    elif group_names:
+        raise ArgumentError(None, 'Unexpected group name(s)')
+    return props
 
 
 def main_app(command='cadc-tap query'):
@@ -952,7 +1296,7 @@ def main_app(command='cadc-tap query'):
     delete_parser = subparsers.add_parser(
         'delete',
         description='Delete a table\n' + AUTH_OPTION_EXPLANATION,
-        help='delete a table')
+        help='Delete a table')
     delete_parser.add_argument(
         'TABLENAME',
         help='name of the table (<schema.table)'
@@ -996,6 +1340,56 @@ def main_app(command='cadc-tap query'):
 
     # handle errors
     errors = [0]
+    permission_parser = subparsers.add_parser(
+        'permission',
+        description='Update access permissions of a table or a schema. '
+                    'Use schema command to display the existing permissions',
+        help='Control table access'
+    )
+
+    def check_mode(mode):
+        """
+        Checks the validity of a mode attribute
+        :param mode:
+        :return: mode dictionary
+         :rtype: re.groupdict
+        """
+        _mode = re.match(
+            r"(?P<who>og|go|o|g)(?P<op>[+\-=])(?P<what>rw|wr|r|w)",
+            mode)
+        if _mode is None:
+            raise ArgumentError(_mode, 'Invalid mode: {}'.format(mode))
+        return _mode.groupdict()
+
+    permission_parser.add_argument(
+        'mode', type=check_mode,
+        help='permission setting accepted modes: (og|go|o|g)[+-=](rw|wr|r|w)')
+    permission_parser.add_argument('TARGET', help='table or schema name')
+    permission_parser.add_argument(
+        'groups', nargs='*',
+        help="name(s) of group(s) to assign read/write permission to. "
+             "One group per r or w permission.")
+    # options_parser = permission_parser.add_mutually_exclusive_group(
+    #     required=False)
+    # options_parser.add_argument(
+    #     '-o-r', action='store_true',
+    #     help='remove anonymous read access')
+    # options_parser.add_argument(
+    #     '-o+r', action='store_true',
+    #     help='add anonymous read access')
+    # options_parser.add_argument(
+    #     '-g+r', metavar='<group name>',
+    #     help='grant group read permission')
+    # options_parser.add_argument(
+    #     '-g-r', action='store_true',
+    #     help='revoke group read permission')
+    # options_parser.add_argument(
+    #     '-g+w', metavar = '<group name>',
+    #     help='grant group write (and implicitly read) permission')
+    # options_parser.add_argument(
+    #     '-g-w', action='store_true',
+    #     help='revoke group write permission')
+
 #    def handle_error(msg, exit_after=True):
 #        """
 #        Prints error message and exit (by default)
@@ -1017,6 +1411,7 @@ def main_app(command='cadc-tap query'):
     _customize_parser(index_parser)
     _customize_parser(load_parser)
     _customize_parser(interactive_parser)
+    _customize_parser(permission_parser)
     args = parser.parse_args()
     if len(sys.argv) < 2:
         parser.print_usage(file=sys.stderr)
@@ -1073,5 +1468,18 @@ def main_app(command='cadc-tap query'):
             print(client.schema(args.tablename))
         elif args.cmd == 'interactive':
             client.interact()
+            client.schema(args.tablename)
+        elif args.cmd == 'permission':
+            try:
+                perms = _get_permission_modes(args)
+            except ArgumentError as e:
+                permission_parser.print_usage(file=sys.stderr)
+                raise e
+            client.set_permissions(args.TARGET, read_anon=perms['read_anon'],
+                                   read_only=perms['read_only'],
+                                   read_write=perms['read_write'])
     except Exception as ex:
         exit_on_exception(ex)
+    except KeyboardInterrupt:
+        sys.stderr.write('KeyboardInterrupt\n')
+        sys.exit(0)
