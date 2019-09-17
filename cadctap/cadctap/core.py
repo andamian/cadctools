@@ -542,10 +542,9 @@ class CadcTapClient(object):
         """
         # TODO display something more user friendly than the VOSI XML
         try:
-            if '.' in name:
+            tab_info = self.get_schema(name)
+            if not tab_info:
                 tab_info = self.get_table_schema(name)
-            else:
-                tab_info = self.get_schema(name)
         except cadcutils.exceptions.NotFoundException:
             raise AttributeError('Resource {} not found.'.format(name))
         except cadcutils.exceptions.ForbiddenException:
