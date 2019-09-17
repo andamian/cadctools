@@ -567,14 +567,17 @@ class CadcTapClient(object):
         # add table schemas to the list of known keywords
         # TODO add ADQL function from the capabilities
         gnureadline.set_completer(completer.complete)
-        document = ElementTree.fromstring(self.schema())
-        extra_values = []
-        for t in document.findall('schema/table/name'):
-            t_name = t.text
-            extra_values.append(t_name)
-            doc = ElementTree.fromstring(self.schema(t_name))
-            for c in doc.findall('column/name'):
-                extra_values.append(c.text)
+        tables = []
+        for schema in self.get_schema():
+            for row in schema.rows:
+                tables.append(row[0])
+        print(tables)
+        completer.add_keywords(tables)
+        extra_values = [] + tables
+        for t in tables:
+            tab_info = self.get_table_schema(t)
+            for r in tab_info[0].rows:
+                extra_values.append(r[0])
         completer.add_keywords(extra_values)
         for line in ("tab: complete", "set show-all-if-unmodified on"):
             gnureadline.parse_and_bind(line)
@@ -616,7 +619,7 @@ class CadcTapClient(object):
                     try:
                         if len(uin) > 1:
                             for u in uin[1:]:
-                                print(self.schema(table=u))
+                                print(self.schema(name=u))
                         else:
                             print(self.schema())
                     except Exception as e:
@@ -1464,10 +1467,9 @@ def main_app(command='cadc-tap query'):
             client.query(query, args.output_file, args.format, args.tmptable,
                          timeout=args.timeout, data_only=args.quiet)
         elif args.cmd == 'schema':
-            print(client.schema(args.tablename))
+            client.schema(args.tablename)
         elif args.cmd == 'interactive':
             client.interact()
-            client.schema(args.tablename)
         elif args.cmd == 'permission':
             try:
                 perms = _get_permission_modes(args)
