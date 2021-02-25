@@ -24,9 +24,9 @@ jobs:
         echo "repo_version=$(echo ${GITHUB_REF#refs/*/} | awk -F '=' '{print $2}')" >> $GITHUB_ENV
     - name: Check version is valid
       run: |
-        echo ${{ repo_name }}
-        echo ${{ repo_version }}
-        sed 's/ //g' setup.cfg | grep "^version=echo ${{ repo_version }}" || echo "Version in tag ${{ repo_version }} does not match version in setup.cfg
+        echo ${{ env.repo_name }}
+        echo ${{ env.repo_version }}
+        sed 's/ //g' setup.cfg | grep "^version=echo ${{ env.repo_version }}" || echo "Version in tag ${{ env.repo_version }} does not match version in setup.cfg
 #    - name: Test
 #      run: echo $REPOSITORY_NAME
 #     - name: Install dependencies
