@@ -22,7 +22,7 @@ jobs:
         echo ${GITHUB_REF#refs/*/}
         echo $(echo ${GITHUB_REF#refs/*/} | awk -F '=' '{print $1}')
         cd $(echo ${GITHUB_REF#refs/*/} | awk -F '=' '{print $1}')
-        sed 's/ //g' setup.cfg | grep "^version=$(echo "$GITHUB_REF" | awk -F '=' '{print $2}')" || echo "Version in tag ($version) does not match version in setup.cfg
+        sed 's/ //g' setup.cfg | grep "^version=$(echo ${GITHUB_REF#refs/*/} | awk -F '=' '{print $2}')" || echo "Version in tag ($version) does not match version in setup.cfg
 #    - name: Test
 #      run: echo $REPOSITORY_NAME
 #     - name: Install dependencies
