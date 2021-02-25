@@ -19,8 +19,9 @@ jobs:
         python-version: '3.x'
     - name: Determine the package
       run: |
-        echo $(echo "$GITHUB_REF" | awk -F '=' '{print $3}')
-        cd $(echo "$GITHUB_REF" | awk -F '=' '{print $3}')
+        echo $(echo "$GITHUB_REF" | awk -F '=' '{print $1}')
+        cd $(echo "$GITHUB_REF" | awk -F '=' '{print $1}')
+        sed 's/ //g' setup.cfg | grep "^version=$(echo "$GITHUB_REF" | awk -F '=' '{print $2}')" || echo "Version in tag ($version) does not match version in setup.cfg
 #    - name: Test
 #      run: echo $REPOSITORY_NAME
 #     - name: Install dependencies
