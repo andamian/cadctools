@@ -26,7 +26,7 @@ jobs:
       run: |
         echo ${{ env.repo_name }}
         echo ${{ env.repo_version }}
-        cd ${{ env.repo_name }}
+        cd ${{ env.repo_name }} || (echo "Invalid release version. Repo ${{ env.repo_name }} not found" && exit -1)
         sed 's/ //g' setup.cfg | grep "^version=${{ env.repo_version }}" || (echo "Version in tag ${{ env.repo_version }} does not match version in setup.cfg" && exit -1)
     - name: Install dependencies
       run: |
