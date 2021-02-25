@@ -20,14 +20,13 @@ jobs:
     - name: Determine the package
       run: |
         echo ${GITHUB_REF#refs/*/}
-        echo ::set-env name=REPO_NAME::$(echo ${GITHUB_REF#refs/*/} | awk -F '=' '{print $1}')
-        echo ${{ env.REPO_NAME }}
-        echo ::set-env name=REPO_VERSION::$(echo ${GITHUB_REF#refs/*/} | awk -F '=' '{print $2}')
-        echo ${{ env.REPO_VERSION }}
+        echo "repo_name=$(echo ${GITHUB_REF#refs/*/} | awk -F '=' '{print $1}')" >> $GITHUB_ENV
+        echo "repo_version=$(echo ${GITHUB_REF#refs/*/} | awk -F '=' '{print $2}')" >> $GITHUB_ENV
     - name: Check version is valid
       run: |
-        echo ${{ env.REPO_VERSION }}
-        sed 's/ //g' setup.cfg | grep "^version=echo ${{ env.REPO_VERSION }}" || echo "Version in tag ($version) does not match version in setup.cfg
+        echo ${{ repo_name }}
+        echo ${{ repo_version }}
+        sed 's/ //g' setup.cfg | grep "^version=echo ${{ repo_version }}" || echo "Version in tag ${{ repo_version }} does not match version in setup.cfg
 #    - name: Test
 #      run: echo $REPOSITORY_NAME
 #     - name: Install dependencies
