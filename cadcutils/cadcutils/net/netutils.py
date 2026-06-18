@@ -97,29 +97,42 @@ SSO_SECURITY_METHODS = {
 
 def get_header_filename(headers):
     """
-    Extracts the file name from Content-Disposition in the GET response
+    Extracts the file name from Content-Disposition in the GET response.
 
-    Partial implementation of https://tools.ietf.org/html/rfc6266)
+    Partial implementation of https://tools.ietf.org/html/rfc6266. Parsing
+    prefers ``filename*`` (RFC 5987 extended values) over plain ``filename``,
+    then tries quoted and unquoted forms of the latter.
+
     :param headers: HTTP headers of the response
     :return: Name of the file or None if not found
     """
-    cd = headers.get('content-disposition', None)
+    cd = headers.get('content-disposition')
     if not cd:
         return None
-    fname = re.findall(r'filename\*=([^;]+)', cd, flags=re.IGNORECASE)
-    if not fname:
-        fname = re.findall("filename=([^;]+)", cd, flags=re.IGNORECASE)
-    if "utf-8''" in fname[0].lower():
-        fname = re.sub("utf-8''", '', fname[0], flags=re.IGNORECASE)
-        if not isinstance(fname, str):
-            # TODO remove - this is just for Python2 support
-            fname = unquote(fname.encode('utf-8')).decode('utf-8')
-        else:
-            fname = unquote(fname)
-    else:
-        fname = fname[0]
-    # clean space and double quotes
-    return fname.strip().strip('"')
+
+    # RFC 5987 extended filename: filename*=charset'lang'percent-encoded-value
+    # e.g. filename*=UTF-8''%e2%82%ac%20rates.txt
+    match = re.search(r"filename\*=([^;]+)", cd, flags=re.IGNORECASE)
+    if match:
+        value = match.group(1).strip()
+        value = re.sub(r"^utf-8''", '', value, flags=re.IGNORECASE)
+        return unquote(value)
+
+    # Quoted filename per RFC 2616 quoted-string, e.g. filename="an example.txt"
+    match = re.search(
+        r'filename=\s*"((?:[^"\\]|\\.)*)"',
+        cd,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        return match.group(1).replace('\\"', '"').strip()
+
+    # Unquoted token filename, e.g. filename=example.txt
+    match = re.search(r'filename=\s*([^;\s]+)', cd, flags=re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+
+    return None
 
 
 def extract_md5(headers):
