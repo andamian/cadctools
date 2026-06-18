@@ -143,6 +143,29 @@ def _format_choice_list(allowed_formats):
     return ', '.join(sorted(allowed_formats))
 
 
+def _format_data_type(data_type_element):
+    """
+    Convert a VOSI dataType element to a display type string.
+
+    The dataType text is uppercased. When arraysize is present it is appended
+    in parentheses. When extendedType is present it replaces the dataType
+    value (also uppercased).
+
+    :param data_type_element: minidom Element for dataType
+    :return: display type string in upper case
+    """
+    if not data_type_element or not data_type_element.firstChild:
+        return ''
+    data_type = data_type_element.firstChild.nodeValue.strip().upper()
+    arraysize = data_type_element.getAttribute('arraysize')
+    extended_type = data_type_element.getAttribute('extendedType')
+
+    display_type = extended_type.upper() if extended_type else data_type
+    if arraysize:
+        return '{}({})'.format(display_type, arraysize)
+    return display_type
+
+
 def resolve_app_format(value, allowed_formats, label='format'):
     """
     Resolve user input to a canonical application format name.
@@ -619,7 +642,6 @@ class CadcTapClient(object):
     def get_table_schema(self, table):
         """
         Returns the schema information regarding a table in TabularInfo form
-        NOTE: columns ctypes are currently ignored
         :param table: table name
         :return: Information about the table as a list of TabularInfo objects.
         First object represents information about columns, while the second
@@ -635,7 +657,7 @@ class CadcTapClient(object):
             tab_descr = ''
         cols_info = TabularInfo(name=table,
                                 description=tab_descr,
-                                columns=['Name', 'Type', 'Index',
+                                columns=['Name', 'Type', 'Unit', 'Index',
                                          'Description'])
         for s in doc.getElementsByTagName('column'):
             name = s.getElementsByTagName('name')[0].firstChild.nodeValue
@@ -644,17 +666,22 @@ class CadcTapClient(object):
                     firstChild.nodeValue
             except Exception:
                 description = ''
-            if s.getElementsByTagName('utype'):
-                col_type = s.getElementsByTagName('utype')[0]. \
-                    firstChild.nodeValue
+            data_type = s.getElementsByTagName('dataType')
+            if data_type:
+                col_type = _format_data_type(data_type[0])
             else:
                 col_type = ''
+            unit_elems = s.getElementsByTagName('unit')
+            if unit_elems and unit_elems[0].firstChild:
+                unit = unit_elems[0].firstChild.nodeValue
+            else:
+                unit = ''
             flag = s.getElementsByTagName('flag')
             if flag and flag[0].firstChild.nodeValue == 'indexed':
                 indexed = 'Y'
             else:
                 indexed = 'N'
-            cols_info.add_row((name, col_type, indexed, description))
+            cols_info.add_row((name, col_type, unit, indexed, description))
         result = [cols_info]
 
         fk = doc.getElementsByTagName('foreignKey')

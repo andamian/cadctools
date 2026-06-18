@@ -82,10 +82,12 @@ from cadctap.core import _get_subject_from_netrc, \
     _get_subject_from_certificate, _get_subject, exit_on_exception
 import tempfile
 import argparse
+from xml.dom import minidom
 
 from cadctap.core import TABLES_CAPABILITY_ID, ALLOWED_TB_DEF_TYPES, \
     ALLOWED_CONTENT_TYPES, TABLE_UPDATE_CAPABILITY_ID, \
-    TABLE_LOAD_CAPABILITY_ID, PERMISSIONS_CAPABILITY_ID, _get_permission_modes
+    TABLE_LOAD_CAPABILITY_ID, PERMISSIONS_CAPABILITY_ID, _get_permission_modes, \
+    _format_data_type
 
 # The following is a temporary workaround for Python issue
 # 25532 (https://bugs.python.org/issue25532)
@@ -501,6 +503,32 @@ def test_set_permissions(caps_get_mock, post_mock):
         _get_permission_modes(opt)
 
 
+@pytest.mark.parametrize(
+    'data_type_xml, expected',
+    [
+        ('<dataType arraysize="16">char</dataType>', 'CHAR(16)'),
+        ('<dataType arraysize="32*">char</dataType>', 'CHAR(32*)'),
+        ('<dataType arraysize="*">char</dataType>', 'CHAR(*)'),
+        ('<dataType arraysize="*" extendedType="uri">char</dataType>',
+         'URI(*)'),
+        ('<dataType arraysize="*" extendedType="clob">char</dataType>',
+         'CLOB(*)'),
+        ('<dataType arraysize="36" extendedType="uuid">char</dataType>',
+         'UUID(36)'),
+        ('<dataType arraysize="23*" extendedType="timestamp">char</dataType>',
+         'TIMESTAMP(23*)'),
+        ('<dataType>int</dataType>', 'INT'),
+        ('<dataType>double</dataType>', 'DOUBLE'),
+        ('<dataType>char</dataType>', 'CHAR'),
+        ('<dataType>long</dataType>', 'LONG'),
+    ])
+def test_format_data_type(data_type_xml, expected):
+    doc = minidom.parseString(
+        '<root xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
+        '{}</root>'.format(data_type_xml))
+    assert expected == _format_data_type(doc.getElementsByTagName('dataType')[0])
+
+
 @patch('cadcutils.net.ws.BaseWsClient.get')
 @patch('cadcutils.net.ws.WsCapabilities.get_access_url')
 def test_schema(caps_get_mock, base_get_mock):
@@ -537,8 +565,18 @@ def test_schema(caps_get_mock, base_get_mock):
     assert 3 == len(tb_schema)
     assert 'caom2.Observation' == tb_schema[0].name
     assert 'the main CAOM Observation table' == tb_schema[0].description
-    assert ['Name', 'Type', 'Index', 'Description'] == tb_schema[0].columns
+    assert ['Name', 'Type', 'Unit', 'Index', 'Description'] == tb_schema[0].columns
     assert 45 == len(tb_schema[0].rows)
+    rows_by_name = {row[0]: row for row in tb_schema[0].rows}
+    assert 'URI(*)' == rows_by_name['observationURI'][1]
+    assert 'UUID(36)' == rows_by_name['obsID'][1]
+    assert 'CHAR(32*)' == rows_by_name['collection'][1]
+    assert 'INT' == rows_by_name['sequenceNumber'][1]
+    assert 'DOUBLE' == rows_by_name['target_redshift'][1]
+    assert 'CHAR(*)' == rows_by_name['proposal_keywords'][1]
+    assert 'CLOB(*)' == rows_by_name['members'][1]
+    assert 'deg' == rows_by_name['targetPosition_coordinates_cval1'][2]
+    assert '' == rows_by_name['collection'][2]
     assert 'Foreign Keys' == tb_schema[1].name
     assert 'Foreign Keys for table' == tb_schema[1].description
     assert ['Target Table', 'Target Col', 'From Column', 'Description'] == \
