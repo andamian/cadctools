@@ -26,8 +26,7 @@
 #  of the National Research             le nom du Conseil National de
 #  Council of Canada nor the            Recherches du Canada ni les noms
 #  names of its contributors may        de ses  participants ne peuvent
-#  be used to endorse or promote        être utilisés pour approuver ou
-#  products derived from this           promouvoir les produits dérivés
+#  be used to endorse or promote        products derived from this
 #  software without specific prior      de ce logiciel sans autorisation
 #  written permission.                  préalable et particulière
 #                                       par écrit.
