@@ -437,3 +437,14 @@ class TestMd5File(unittest.TestCase):
 
         with pytest.raises(AttributeError):
             Md5File(tmpfile.name, 'rb', offset=1000)
+
+
+def test_normalize_host():
+    assert util.normalize_host('example.cadc.ca') == 'example.cadc.ca'
+    assert util.normalize_host('https://example.cadc.ca') == 'example.cadc.ca'
+    assert util.normalize_host('http://example.cadc.ca/path') == 'example.cadc.ca'
+    assert util.normalize_host(
+        'https://ws.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/reg/resource-caps') == \
+        'ws.cadc-ccda.hia-iha.nrc-cnrc.gc.ca'
+    assert util.normalize_host(None) is None
+    assert util.normalize_host('') == ''

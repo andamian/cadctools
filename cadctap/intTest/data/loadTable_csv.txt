@@ -1,4 +1,4 @@
-article,count
+article,item_count
 art1,1
 art2,2
 art3,3

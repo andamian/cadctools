@@ -84,7 +84,7 @@ from cadcutils import exceptions
 
 __all__ = ['IVOA_DATE_FORMAT', 'date2ivoa', 'str2ivoa', 'get_url_content',
            'get_logger', 'get_log_level', 'get_base_parser', 'Md5File',
-           'check_version', 'VersionWarning']
+           'check_version', 'VersionWarning', 'normalize_host']
 
 # TODO both these are very bad, implement more sensibly
 IVOA_DATE_FORMAT = "%Y-%m-%dT%H:%M:%S.%f"
@@ -186,9 +186,21 @@ def parse_resource_id(resource_id):
     return resource_id
 
 
-###############################################################################
-# Common command line options and customized format
-###############################################################################
+def normalize_host(host):
+    """
+    Return a hostname from a host override value.
+    Accepts a plain hostname or a URL with an optional http(s) scheme.
+    """
+    if not host:
+        return host
+    host = host.strip()
+    if '://' in host:
+        parsed = urlparse(host)
+        if parsed.hostname:
+            return parsed.hostname
+        raise ValueError('Invalid host: {}'.format(host))
+    return host.rstrip('/')
+
 
 class SingleMetavarHelpFormatter(RawDescriptionHelpFormatter):
     """
@@ -360,7 +372,7 @@ def get_base_parser(subparsers=True, version=None, usecert=True,
                                  'corresponding password!')
     auth_group.add_argument('--token', type=str,
                             help='authentication token to use.')
-    cparser.add_argument('--host', help=SUPPRESS)
+    cparser.add_argument('--host', type=normalize_host, help=SUPPRESS)
     cparser.add_argument('-k', '--insecure', action='store_true',
                          help='skip SSL server certificate verification '
                               '(for testing only; not recommended)')

@@ -1,7 +1,73 @@
-Integration tests that run against the CADC youcat service. In order
-to run the tests, you need authorization to access the service and your
-own schema. Pass the information to the test script using the following
-environment variables:
-$CADCTAP_SCHEMA
-$CADC_CERT
-To invoke the tests run `pytest intTest`
+Integration tests for cadc-tap that run against the CADC youcat service.
+
+Requirements
+------------
+
+* Authorization to access the youcat service on the target host.
+* A dedicated database schema for the tests (tables are created and deleted
+  in this schema during the run).
+* A directory containing three client certificate files (see below).
+* Test users represented by the auth certificates must be members of the
+  CADC_TEST2-Staff group (used for group read/write permission checks).
+
+Environment variables
+---------------------
+
+CADCTAP_SCHEMA (required)
+    Name of the database schema to use for the tests, e.g. int_test_schema.
+
+CADC_CERT_DIR (required)
+    Path to a directory that contains the certificate files listed below.
+
+TAP_HOST (optional)
+    Host name of the youcat TAP service. A plain hostname or a URL with an
+    optional https:// scheme is accepted (e.g. ws.cadc-ccda.hia-iha.nrc-cnrc.gc.ca
+    or https://ws.cadc-ccda.hia-iha.nrc-cnrc.gc.ca). Defaults to the CADC
+    registry host when not set.
+
+Certificate directory
+---------------------
+
+Set CADC_CERT_DIR to a directory that contains these three PEM files:
+
+cadc-tap-test-auth1.pem
+    Primary authenticated test user. Owns the test schema and tables for
+    most operations. Must be a member of CADC_TEST2-Staff.
+
+cadc-tap-test-auth2.pem
+    Second authenticated test user. Used for cross-user permission checks.
+    Must be a member of CADC_TEST2-Staff.
+
+cadc-tap-test-reg.pem
+    Registered CADC user that is not a member of CADC_TEST2-Staff. Used to
+    verify that users outside the group are denied access when expected.
+
+The tests refer to these files by the names above. They are typically
+symlinks to standard CADC test certificates.
+
+Owner names used in permission assertions are derived automatically from
+each certificate at startup (CADC username from the certificate CN).
+
+Running the tests
+-----------------
+
+From the cadctap package directory:
+
+    CADCTAP_SCHEMA=int_test_schema \
+    CADC_CERT_DIR=/path/to/test-certificates \
+    pytest intTest/test_all.py -v
+
+To follow step-by-step progress and see timing for each CLI call (useful
+when diagnosing slow runs or hangs):
+
+    CADCTAP_SCHEMA=int_test_schema \
+    CADC_CERT_DIR=/path/to/test-certificates \
+    pytest intTest/test_all.py -v -s --log-cli-level=INFO
+
+Each test step logs lines of the form:
+
+    >>> STEP N START: <description>
+    <<< STEP N DONE:  <description> (<seconds>s)
+
+If a run appears to hang, the last START line without a matching DONE line
+indicates where it is stuck.

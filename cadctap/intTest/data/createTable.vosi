@@ -9,7 +9,7 @@ This is my very own table
 <dataType xsi:type="vod:VOTableType" arraysize="30*">char</dataType>
 </column>
 <column>
-<name>count</name>
+<name>item_count</name>
 <description>how many</description>
 <dataType xsi:type="vod:VOTableType">long</dataType>
 </column>

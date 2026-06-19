@@ -257,6 +257,8 @@ class BaseWsClient(object):
         if agent is None or not agent:
             raise ValueError('agent is None or empty string')
 
+        host = util.normalize_host(host)
+
         self._session = None
         self.subject = subject
         self.resource_id = resource_id
