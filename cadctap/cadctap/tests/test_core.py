@@ -98,6 +98,29 @@ TESTDATA_DIR = os.path.join(THIS_DIR, 'data')
 BASE_URL = 'https://ws-cadc.canfar.net/youcat'
 
 
+def _put_upload_bytes(put_mock):
+    data = put_mock.call_args.kwargs['data']
+    if hasattr(data, 'read'):
+        try:
+            pos = data.tell()
+            data.seek(0)
+            content = data.read()
+            data.seek(pos)
+            return content
+        except (ValueError, OSError):
+            with open(data.name, 'rb') as fh:
+                return fh.read()
+    return data
+
+
+def _assert_create_put(put_mock, table_name, expected_content, content_type):
+    put_mock.assert_called_once()
+    assert put_mock.call_args.args[0] == (TABLES_CAPABILITY_ID, table_name)
+    assert put_mock.call_args.kwargs['headers'] == {
+        'Content-Type': content_type}
+    assert _put_upload_bytes(put_mock) == expected_content
+
+
 class MyExitError(Exception):
     def __init__(self):
         self.message = "MyExitError"
@@ -269,26 +292,23 @@ def test_create_table(caps_get_mock, base_put_mock):
     def_table = os.path.join(TESTDATA_DIR, 'createTable.vosi')
     def_table_content = open(def_table, 'rb').read()
     client.create_table('sometable', def_table, 'VOSITable')
-    base_put_mock.assert_called_with(
-        (TABLES_CAPABILITY_ID, 'sometable'), data=def_table_content,
-        headers={'Content-Type': '{}'.format(
-            ALLOWED_TB_DEF_TYPES['VOSITable'])})
+    _assert_create_put(
+        base_put_mock, 'sometable', def_table_content,
+        ALLOWED_TB_DEF_TYPES['VOSITable'])
 
     # VOTable format
     base_put_mock.reset_mock()
     client.create_table('sometable', def_table, 'VOTable')
-    base_put_mock.assert_called_with(
-        (TABLES_CAPABILITY_ID, 'sometable'), data=def_table_content,
-        headers={'Content-Type': '{}'.format(
-            ALLOWED_TB_DEF_TYPES['VOTable'])})
+    _assert_create_put(
+        base_put_mock, 'sometable', def_table_content,
+        ALLOWED_TB_DEF_TYPES['VOTable'])
 
-    # default is VOTable format
+    # default is VOSITable format
     base_put_mock.reset_mock()
     client.create_table('sometable', def_table)
-    base_put_mock.assert_called_with(
-        (TABLES_CAPABILITY_ID, 'sometable'), data=def_table_content,
-        headers={'Content-Type': '{}'.format(
-            ALLOWED_TB_DEF_TYPES['VOSITable'])})
+    _assert_create_put(
+        base_put_mock, 'sometable', def_table_content,
+        ALLOWED_TB_DEF_TYPES['VOSITable'])
 
     # error cases
     with pytest.raises(AttributeError):

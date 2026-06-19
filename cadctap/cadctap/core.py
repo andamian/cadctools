@@ -301,9 +301,12 @@ class CadcTapClient(object):
         logger.debug('Creating {} from file {} of type {}'.
                      format(table_name, table_definition, file_type))
         headers = {'Content-Type': ALLOWED_TB_DEF_TYPES[file_type]}
-        self._tap_client.put((TABLES_CAPABILITY_ID, table_name),
-                             headers=headers,
-                             data=open(table_definition, 'rb').read())
+        definition_path = '/dev/stdin' if table_definition == '-' else \
+            table_definition
+        with open(definition_path, 'rb') as fh:
+            self._tap_client.put((TABLES_CAPABILITY_ID, table_name),
+                                 headers=headers,
+                                 data=fh)
         logger.debug('Successfully created table {}'.format(table_name))
 
     def delete_table(self, table_name):
